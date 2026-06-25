@@ -15,6 +15,9 @@
 - [x] Коллекция: ВСЕ показывает только навыки.
 - [x] Валюты за проход начисляется слишком много, нужна новая иконка, чтобы отличать от золота внутри забега.
 - [x] В стартовой комнате после победы над боссом могут заспавниться враги (не должны).
+- [x] При загрузке сохранения из экрана загрузки, если ран не завершен, должен грузиться ран.
+- [x] Экран апгрейдов в городе стал пустым, валюта при этом общая на аккаунт, а не на сохранение.
+  - 25 июня 2026: `start_new_run(slot)` теперь полностью сбрасывает выбранный слот при новой игре, поэтому старый checkpoint/meta-progress не протекает в перезаписанный слот; slot-level валюта дополнительно покрыта регрессионным тестом.
 
 ## P0 — Город / мета-прогресс
 
@@ -74,17 +77,19 @@
 
 ## P1 — Data-Driven архитектура (Базы данных)
 
-- [ ] Создать единый DatabaseManager (Autoload):
+- [x] Создать единый DatabaseManager (Autoload):
   - Менеджер должен при _ready() сканировать директории (через DirAccess) вида res://data/enemies/, res://data/abilities/, res://data/items/ и кэшировать загруженные ресурсы в словари (по resource_path или кастомному id).
-  - Это уберет необходимость в ручном поддержании массивов вроде ItemDatabase._ITEM_PATHS.
-  - API: DatabaseManager.get_enemy_data(id), DatabaseManager.get_all_items(), DatabaseManager.get_ability(id).
-- [ ] Перевести всех врагов на EnemyData.tres файлы:
-  - Сейчас часть статов (HP, speed, damage, флаги поведения) задаётся прямо в скриптах врагов (например, goblin_enemy.gd).
-  - Нужно создать папку res://data/enemies/ и сохранить настройки каждого врага как отдельный .tres файл (goblin.tres, minotaur.tres).
-Скрипты врагов должны только загружать ресурс и применять его, не содержа в себе магических чисел.
-- [ ] Перевести способности в .tres файлы:
-  - Базовые характеристики способностей (cooldown, damage, range, tags) должны храниться в .tres файлах способностей, а не инициализироваться в _init() скрипта.
-  - Это позволит системе морфов и UPGRADE-предметам модифицировать данные напрямую из БД.
+  - Сделано 25 июня 2026: добавлен autoload `DatabaseManager` (`res://systems/database/database_manager.gd`) с рекурсивным сканом `.tres/.res`, кешем по path и id-полям (`enemy_id`/`ability_id`/`item_id`, `id`, `resource_id`) и API `get_enemy_data(id)`, `get_all_items()`, `get_ability(id)`.
+  - `get_all_items()` пока использует fallback на текущий `ItemDatabase.get_all_items()`, если `res://data/items` пустой; перенос предметов из `_ITEM_PATHS` остаётся отдельным TODO ниже.
+- [x] Перевести всех врагов на EnemyData.tres файлы:
+  - Сделано 25 июня 2026: создана папка `res://data/enemies/`, текущие обычные враги и боссы перенесены в отдельные `.tres` (`goblin`, `wolf`, `orc`, `archer`, `bomber`, `goblin_archer`, `firefly_spirit`, `summoner`, `orc_warrior`, `minotaur`, `orc_warlord`).
+  - `EnemyData` получил `enemy_id`; `DatabaseManager.get_enemy_data(id)` отдаёт врагов по id или resource path, с fallback на basename файла.
+  - Скрипты врагов теперь загружают ресурс через общий helper `BaseEnemy.load_enemy_data(...)`; в скриптах остаются только уникальные SpriteFrames/VFX/атаки.
+- [x] Перевести способности в .tres файлы:
+  - Сделано 25 июня 2026: создана папка `res://data/abilities/`, текущие способности перенесены в `.tres` с `ability_id`, cooldown/damage/range-полями и `ability_tags`.
+  - `AbilityResource.load_ability(id, fallback_path)` грузит способности через `DatabaseManager.get_ability(id)` или fallback `.tres` и возвращает чистую копию для runtime.
+  - `AbilityComponent`, `GameManager`, ресурсы персонажей и SKILL-предметы теперь берут способности из `res://data/abilities/*.tres`; старые `.new()` оставлены только как fallback при отсутствующем ресурсе.
+  - В `_init()` ability-скриптов теги теперь задаются через `ability_tags.assign(...)`, чтобы typed `Array[String]` корректно инициализировался в тестах и fallback-пути.
 - [ ] Создать GameBalanceConfig.tres:
   - Вынести глобальные константы из world.gd и base_enemy.gd в единый ресурс конфигурации.
   - Перенести туда: MAX_DUNGEON_LEVEL, STAGGER_DAMAGE_FRACTION, STAGGER_COOLDOWN_SECONDS, xp_to_next base value и multiplier (1.4), DUNGEON_LEVEL_HP_MULT.
@@ -216,5 +221,5 @@
 1. Расширять authored-room pipeline: состояние выгруженных authored-комнат, разные `room_type`/правила на сцену и graph/minimap для ручных выходов.
 2. Добавить уникальные boss mechanics/resources поверх `BossEncounterTable` (новые FSM-ветки, фазы, data-resources), потому что второй boss scene уже подключён.
 3. Добавить расширенный VFX-слой для elite-модификаторов: частицы/шейдеры для огня, блока и debuff-аур поверх уже подключённых underfoot-паттернов.
-4. После стабилизации предметов и врагов вернуться к DatabaseManager и переносу item/enemy definitions из скриптов в data-resources.
+4. Перенести item definitions из `_ITEM_PATHS` в `res://data/items` и подключить `ItemDatabase` к `DatabaseManager`.
 5. Отдельно пройти P0-баги по пассивкам, аурам и tooltip-цифрам, чтобы новые предметы не закрепляли старые расхождения.
